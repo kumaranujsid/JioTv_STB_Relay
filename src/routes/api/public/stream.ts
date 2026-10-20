@@ -24,7 +24,7 @@ const h = async ({ request }: { request: Request }) => {
     "User-Agent": "plaYtv/7.1.3 (Linux;Android 13) ExoPlayerLib/2.11.7",
   };
   const range = request.headers.get("range");
-  if (range) headers.Range = range;
+  if (range) headers["Range"] = range;
   const res = await fetch(u.toString(), { method: request.method, headers });
   const out = new Headers(cors);
   for (const k of ["content-type", "content-length", "content-range", "accept-ranges"]) {

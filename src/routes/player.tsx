@@ -76,7 +76,7 @@ function PlayerPage() {
       net.registerRequestFilter((_type: number, req: { uris: string[] }) => {
         req.uris = req.uris.map((uri) => {
           if (uri.includes("/api/public/stream?url=")) {
-            const inner = decodeURIComponent(uri.split("url=")[1]);
+            const inner = decodeURIComponent(uri.split("url=")[1] ?? "");
             uri = inner;
           }
           if (!/^https:\/\/[^/]*jio\.com\//.test(uri)) return uri;
