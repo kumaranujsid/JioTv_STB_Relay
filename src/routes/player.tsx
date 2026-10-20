@@ -72,24 +72,40 @@ function PlayerPage() {
       p.configure({ drm: { clearKeys: current.keys } });
       const token = new URL(current.url).search;
       const net = p.getNetworkingEngine();
-      net.clearAllRequestFilters();
-      net.registerRequestFilter((_type: number, req: { uris: string[] }) => {
-        req.uris = req.uris.map((uri) => {
-          if (uri.includes("/api/public/stream?url=")) {
-            const inner = decodeURIComponent(uri.split("url=")[1] ?? "");
-            uri = inner;
-          }
-          if (!/^https:\/\/[^/]*jio\.com\//.test(uri)) return uri;
-          const u = new URL(uri);
-          if (!u.search && token) u.search = token;
-          return `${window.location.origin}/api/public/stream?url=${encodeURIComponent(u.toString())}`;
+      const setup = (useRelay: boolean) => {
+        net.clearAllRequestFilters();
+        net.registerRequestFilter((_type: number, req: { uris: string[] }) => {
+          req.uris = req.uris.map((uri) => {
+            if (uri.includes("/api/public/stream?url=")) {
+              uri = decodeURIComponent(uri.split("url=")[1] ?? "");
+            }
+            if (!/^https:\/\/[^/]*jio\.com\//.test(uri)) return uri;
+            const u = new URL(uri);
+            if (!u.search && token) u.search = token;
+            return useRelay
+              ? `${window.location.origin}/api/public/stream?url=${encodeURIComponent(u.toString())}`
+              : u.toString();
+          });
         });
-      });
-      try {
-        await p.load(current.url);
-        if (!cancelled) videoRef.current?.play().catch(() => {});
-      } catch (e: any) {
-        if (!cancelled) setError(`Couldn't play this channel in the browser (code ${e?.code ?? "?"}). Try it in OTT Navigator or NS Player.`);
+      };
+      let lastErr: any = null;
+      // Try direct from the viewer's own (Indian) connection first, then the relay.
+      for (const useRelay of [false, true]) {
+        if (cancelled) return;
+        setup(useRelay);
+        try {
+          await p.load(current.url);
+          if (!cancelled) videoRef.current?.play().catch(() => {});
+          return;
+        } catch (e: any) {
+          lastErr = e;
+        }
+      }
+      if (!cancelled) {
+        const status = lastErr?.data?.[1];
+        setError(
+          `Couldn't play this channel in the browser (code ${lastErr?.code ?? "?"}${status ? `, server said ${status}` : ""}). Jio blocks some browser playback — use NS Player for this channel.`,
+        );
       }
     })();
     return () => { cancelled = true; };
