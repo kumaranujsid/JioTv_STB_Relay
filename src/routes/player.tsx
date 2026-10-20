@@ -37,7 +37,7 @@ function parse(m3u: string): Channel[] {
         if (k && key) cur.keys![k] = key;
       }
     } else if (!l.startsWith("#") && cur.name) {
-      out.push({ ...(cur as Channel), url: l });
+      out.push({ ...(cur as Channel), url: l.split("|")[0] ?? l });
       cur = {};
     }
   }

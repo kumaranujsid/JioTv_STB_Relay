@@ -25,6 +25,8 @@ const h = async ({ request }: { request: Request }) => {
   };
   const range = request.headers.get("range");
   if (range) headers["Range"] = range;
+  const tok = /__hdnea__=[^&]+/.exec(u.search)?.[0];
+  if (tok) headers["Cookie"] = tok;
   const res = await fetch(u.toString(), { method: request.method, headers });
   const out = new Headers(cors);
   for (const k of ["content-type", "content-length", "content-range", "accept-ranges"]) {
