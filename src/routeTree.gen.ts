@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PlayerRouteImport } from './routes/player'
 import { Route as ApiPublicJiostbRouteImport } from './routes/api/public/jiostb'
 import { Route as ApiPublicJiostbDotm3uRouteImport } from './routes/api/public/jiostb[.]m3u'
+import { Route as ApiPublicStreamRouteImport } from './routes/api/public/stream'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const ApiPublicJiostbDotm3uRoute = ApiPublicJiostbDotm3uRouteImport.update({
   path: '/api/public/jiostb.m3u',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicStreamRoute = ApiPublicStreamRouteImport.update({
+  id: '/api/public/stream',
+  path: '/api/public/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/player': typeof PlayerRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
   '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
+  '/api/public/stream': typeof ApiPublicStreamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/player': typeof PlayerRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
   '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
+  '/api/public/stream': typeof ApiPublicStreamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,18 +61,30 @@ export interface FileRoutesById {
   '/player': typeof PlayerRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
   '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
+  '/api/public/stream': typeof ApiPublicStreamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/player' | '/api/public/jiostb' | '/api/public/jiostb.m3u'
+  fullPaths:
+    | '/'
+    | '/player'
+    | '/api/public/jiostb'
+    | '/api/public/jiostb.m3u'
+    | '/api/public/stream'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/player' | '/api/public/jiostb' | '/api/public/jiostb.m3u'
+  to:
+    | '/'
+    | '/player'
+    | '/api/public/jiostb'
+    | '/api/public/jiostb.m3u'
+    | '/api/public/stream'
   id:
     | '__root__'
     | '/'
     | '/player'
     | '/api/public/jiostb'
     | '/api/public/jiostb.m3u'
+    | '/api/public/stream'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -72,6 +92,7 @@ export interface RootRouteChildren {
   PlayerRoute: typeof PlayerRoute
   ApiPublicJiostbRoute: typeof ApiPublicJiostbRoute
   ApiPublicJiostbDotm3uRoute: typeof ApiPublicJiostbDotm3uRoute
+  ApiPublicStreamRoute: typeof ApiPublicStreamRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -104,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicJiostbDotm3uRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/stream': {
+      id: '/api/public/stream'
+      path: '/api/public/stream'
+      fullPath: '/api/public/stream'
+      preLoaderRoute: typeof ApiPublicStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -112,6 +140,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlayerRoute: PlayerRoute,
   ApiPublicJiostbRoute: ApiPublicJiostbRoute,
   ApiPublicJiostbDotm3uRoute: ApiPublicJiostbDotm3uRoute,
+  ApiPublicStreamRoute: ApiPublicStreamRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
