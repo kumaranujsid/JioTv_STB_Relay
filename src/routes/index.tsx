@@ -37,7 +37,7 @@ function Index() {
     setBusy(false);
   };
 
-  const link = `${origin}/api/public/jiostb`;
+  const link = `${origin}/api/public/jiostb.m3u`;
 
   return (
     <main className="min-h-screen bg-background px-5 py-12 font-mono text-foreground">
