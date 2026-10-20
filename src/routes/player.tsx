@@ -70,6 +70,21 @@ function PlayerPage() {
       }
       const p = playerRef.current;
       p.configure({ drm: { clearKeys: current.keys } });
+      const token = new URL(current.url).search;
+      const net = p.getNetworkingEngine();
+      net.clearAllRequestFilters();
+      net.registerRequestFilter((_type: number, req: { uris: string[] }) => {
+        req.uris = req.uris.map((uri) => {
+          if (uri.includes("/api/public/stream?url=")) {
+            const inner = decodeURIComponent(uri.split("url=")[1]);
+            uri = inner;
+          }
+          if (!/^https:\/\/[^/]*jio\.com\//.test(uri)) return uri;
+          const u = new URL(uri);
+          if (!u.search && token) u.search = token;
+          return `${window.location.origin}/api/public/stream?url=${encodeURIComponent(u.toString())}`;
+        });
+      });
       try {
         await p.load(current.url);
         if (!cancelled) videoRef.current?.play().catch(() => {});
