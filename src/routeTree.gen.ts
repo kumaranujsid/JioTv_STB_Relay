@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPublicJiostbRouteImport } from './routes/api/public/jiostb'
+import { Route as ApiPublicJiostbDotm3uRouteImport } from './routes/api/public/jiostb[.]m3u'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const ApiPublicJiostbRoute = ApiPublicJiostbRouteImport.update({
   path: '/api/public/jiostb',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicJiostbDotm3uRoute = ApiPublicJiostbDotm3uRouteImport.update({
+  id: '/api/public/jiostb.m3u',
+  path: '/api/public/jiostb.m3u',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
+  '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
+  '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/public/jiostb': typeof ApiPublicJiostbRoute
+  '/api/public/jiostb.m3u': typeof ApiPublicJiostbDotm3uRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/public/jiostb'
+  fullPaths: '/' | '/api/public/jiostb' | '/api/public/jiostb.m3u'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/public/jiostb'
-  id: '__root__' | '/' | '/api/public/jiostb'
+  to: '/' | '/api/public/jiostb' | '/api/public/jiostb.m3u'
+  id: '__root__' | '/' | '/api/public/jiostb' | '/api/public/jiostb.m3u'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiPublicJiostbRoute: typeof ApiPublicJiostbRoute
+  ApiPublicJiostbDotm3uRoute: typeof ApiPublicJiostbDotm3uRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicJiostbRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/jiostb.m3u': {
+      id: '/api/public/jiostb.m3u'
+      path: '/api/public/jiostb.m3u'
+      fullPath: '/api/public/jiostb.m3u'
+      preLoaderRoute: typeof ApiPublicJiostbDotm3uRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiPublicJiostbRoute: ApiPublicJiostbRoute,
+  ApiPublicJiostbDotm3uRoute: ApiPublicJiostbDotm3uRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
