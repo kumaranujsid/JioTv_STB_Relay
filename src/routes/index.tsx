@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/")({
@@ -71,6 +71,13 @@ function Index() {
             </div>
           ))}
         </section>
+
+        <Link
+          to="/player"
+          className="block w-full rounded-md bg-primary py-3 text-center text-sm font-semibold text-primary-foreground"
+        >
+          ▶ Watch online
+        </Link>
 
         <button
           onClick={refresh}
