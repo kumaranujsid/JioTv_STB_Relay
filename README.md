@@ -1,332 +1,178 @@
 # Akindi
 
-<?php
+A JioTV playlist proxy and web player. It fetches an upstream M3U playlist, caches it for
+3 hours, rewrites every channel line so that common IPTV players can actually open the
+streams, and serves the result as a single playlist URL you can paste into any app.
 
-/**
+A browser player is included too, so you can watch straight from the site without adding
+the playlist anywhere.
 
- * jiostb.php — Local M3U proxy with 3-hour cache.
+## What it does
 
- *
+- **Caches** the upstream playlist in memory for 3 hours, so repeated player requests are
+  served instantly instead of hitting the upstream API every time.
+- **Normalises** the playlist — strips a stray BOM, converts Windows line endings, and
+  guarantees the `#EXTM3U` header is present.
+- **Rewrites** each protected channel line so players send the token as a cookie with the
+  right app user-agent. Every line carrying a `__hdnea__` token gets an
+  `#EXTVLCOPT:http-user-agent` line, an `#EXTHTTP` line with the cookie and user-agent as
+  JSON, and a pipe-separated `|cookie=...&User-Agent=...` suffix. OTT Navigator and
+  NS Player read these; plain `#EXTINF` lists do not carry them.
+- **Relays** video requests through the site for the browser player, which would otherwise
+  be blocked by cross-origin rules.
+- **Serves CORS headers** on every endpoint, so web apps and browser-based players can read
+  the playlist.
 
- * Web:   http://localhost/jiostb.php              → auto-refresh when >3 h old
+## Endpoints
 
- *        http://localhost/jiostb.php?refresh=1    → force refresh
+Base URL of the published app: `https://akindi.lovable.app`
 
- *        http://localhost/jiostb.php?status=1     → JSON cache status
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/public/jiostb.m3u` | The playlist. Use this one — the `.m3u` extension is what most players expect. |
+| `GET /api/public/jiostb` | The same playlist, extensionless. |
+| `GET /api/public/jiostb?status=1` | JSON cache status. |
+| `GET /api/public/jiostb?refresh=1` | Force a fresh fetch from upstream. |
+| `GET /api/public/stream?url=...` | Video relay used by the browser player (see below). |
+| `GET /player` | The web player. |
+| `GET /` | Front page: playlist link, QR code, setup guides. |
 
- * CLI:   php jiostb.php                           → force refresh (for cron)
+`HEAD` and `OPTIONS` are handled on all playlist endpoints.
 
- *
+## Playlist usage
 
- * Requires PHP 7.4+ with cURL (recommended) or allow_url_fopen.
+### 1. Get the URL
 
- */
+```
+https://akindi.lovable.app/api/public/jiostb.m3u
+```
 
+The front page shows this link with a copy button and a QR code you can scan on a TV.
 
+### 2. Add it to a player
 
-error_reporting(E_ALL);
+**NS Player**
+1. Open NS Player → **Playlist** → **Add playlist**.
+2. Paste the URL above and save.
+3. Open the playlist and pick a channel.
 
-ini_set('display_errors', '0');   // never leak errors into the M3U body
+**OTT Navigator**
+1. Open OTT Navigator → **Settings** → **Manage playlists** → **Add**.
+2. Choose **URL** and paste the link.
+3. Let it load the channels, then refresh if the list looks stale.
 
+> If you added the playlist before the player headers were added to the lines, remove it and
+> add it again — the old copy will not play.
 
+### 3. Or watch in the browser
 
-const API_URL       = 'https://jiostbapiplugx.lovable.app/api/jiostb';
+Open `https://akindi.lovable.app/player`. It parses the playlist, shows a searchable channel
+grid with group filters, and plays a channel directly from your own connection first, falling
+back to the relay if that is blocked.
 
-const CACHE_TTL     = 10800;      // 3 hours
+### Response headers
 
-const FETCH_TIMEOUT = 30;
+| Header | Value |
+| --- | --- |
+| `Content-Type` | `audio/x-mpegurl; charset=utf-8` |
+| `Content-Disposition` | `inline; filename="jiostb.m3u"` |
+| `Cache-Control` | `no-cache, must-revalidate` |
+| `X-Cache-Age` | Seconds since this copy was fetched from upstream |
+| `Access-Control-Allow-Origin` | `*` |
 
+## Refresh option
 
+```
+/api/public/jiostb?refresh=1
+```
 
-/* ---------- paths (fall back to temp dir if __DIR__ is not writable) ---------- */
+Any request without this parameter is served from the cache while it is under 3 hours old.
+With `refresh=1` the server fetches the upstream playlist again before answering, and the new
+copy replaces the cached one. Use it when channels have moved or the list looks out of date.
 
-$cacheDir  = is_writable(__DIR__) ? __DIR__ : sys_get_temp_dir();
+- Concurrent refreshes are collapsed into one upstream request.
+- If the upstream fetch fails, the previously cached copy is kept and served; nothing is
+  thrown away.
+- If there is no cached copy and the fetch fails, the endpoint returns **503** with a bare
+  `#EXTM3U` body and a `Retry-After: 300` header.
 
-$cacheFile = $cacheDir . '/jiostb_cache.m3u';
+## Status option
 
-$lockFile  = $cacheDir . '/jiostb_cache.lock';
+```
+curl "https://akindi.lovable.app/api/public/jiostb?status=1"
+```
 
-
-
-$isCli        = (PHP_SAPI === 'cli');
-
-$forceRefresh = $isCli || (isset($_GET['refresh']) && $_GET['refresh'] === '1');
-
-
-
-/* ---------- decide whether we need to fetch ---------- */
-
-clearstatcache(true, $cacheFile);
-
-$needFetch = true;
-
-if (!$forceRefresh && is_file($cacheFile) && filesize($cacheFile) > 0) {
-
-    if ((time() - filemtime($cacheFile)) < CACHE_TTL) {
-
-        $needFetch = false;
-
-    }
-
-}
-
-
-
-/* ---------- refresh under a non-blocking lock ---------- */
-
-if ($needFetch) {
-
-    $lock = @fopen($lockFile, 'c');
-
-    if ($lock !== false && @flock($lock, LOCK_EX | LOCK_NB)) {
-
-        try {
-
-            clearstatcache(true, $cacheFile);
-
-            $stillFresh = !$forceRefresh
-
-                && is_file($cacheFile)
-
-                && filesize($cacheFile) > 0
-
-                && (time() - filemtime($cacheFile)) < CACHE_TTL;
-
-
-
-            if (!$stillFresh) {
-
-                $data = fetchApi();
-
-                if ($data !== false && strlen($data) > 20) {
-
-                    $tmp = $cacheFile . '.tmp.' . getmypid();
-
-                    if (@file_put_contents($tmp, $data) !== false) {
-
-                        @rename($tmp, $cacheFile);   // atomic replace
-
-                    } else {
-
-                        @unlink($tmp);
-
-                    }
-
-                    if ($isCli) {
-
-                        fwrite(STDOUT, sprintf("[%s] refreshed %d bytes\n", date('c'), strlen($data)));
-
-                    }
-
-                } else {
-
-                    $msg = sprintf("[%s] API fetch failed; keeping stale cache\n", date('c'));
-
-                    error_log(trim($msg));
-
-                    if ($isCli) fwrite(STDERR, $msg);
-
-                }
-
-            } elseif ($isCli) {
-
-                fwrite(STDOUT, sprintf("[%s] cache already fresh\n", date('c')));
-
-            }
-
-        } finally {
-
-            @flock($lock, LOCK_UN);
-
-            @fclose($lock);
-
-        }
-
-    } elseif ($lock !== false) {
-
-        @fclose($lock);
-
-        // Someone else is refreshing — serve whatever's on disk.
-
-    }
-
-}
-
-
-
-/* ---------- CLI: refresh only, then exit ---------- */
-
-if ($isCli) {
-
-    exit(0);
-
-}
-
-
-
-/* ---------- JSON status endpoint (for debugging) ---------- */
-
-if (isset($_GET['status'])) {
-
-    header('Content-Type: application/json; charset=utf-8');
-
-    $exists = is_file($cacheFile) && filesize($cacheFile) > 0;
-
-    echo json_encode([
-
-        'cache_file' => $cacheFile,
-
-        'exists'     => $exists,
-
-        'size'       => $exists ? filesize($cacheFile) : 0,
-
-        'age_sec'    => $exists ? (time() - filemtime($cacheFile)) : null,
-
-        'ttl_sec'    => CACHE_TTL,
-
-        'next_fetch' => $exists ? max(0, CACHE_TTL - (time() - filemtime($cacheFile))) : 0,
-
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-    exit;
-
-}
-
-
-
-/* ---------- serve ---------- */
-
-if (!is_file($cacheFile) || filesize($cacheFile) === 0) {
-
-    http_response_code(503);
-
-    header('Content-Type: text/plain; charset=utf-8');
-
-    header('Retry-After: 300');
-
-    echo "#EXTM3U\n# Upstream API unavailable and no cache yet. Retry shortly.\n";
-
-    exit;
-
-}
-
-
-
-header('Content-Type: application/vnd.apple.mpegurl; charset=utf-8');
-
-header('Content-Disposition: inline; filename="jiostb.m3u"');
-
-header('Cache-Control: no-cache, must-revalidate');
-
-header('Access-Control-Allow-Origin: *');
-
-header('X-Cache-Age: ' . (time() - filemtime($cacheFile)));
-
-header('Content-Length: ' . filesize($cacheFile));
-
-readfile($cacheFile);
-
-
-
-/* ---------- helper ---------- */
-
-function fetchApi()
-
+```json
 {
-
-    if (function_exists('curl_init')) {
-
-        $ch = curl_init(API_URL);
-
-        curl_setopt_array($ch, [
-
-            CURLOPT_RETURNTRANSFER => true,
-
-            CURLOPT_FOLLOWLOCATION => true,
-
-            CURLOPT_MAXREDIRS      => 5,
-
-            CURLOPT_CONNECTTIMEOUT => 10,
-
-            CURLOPT_TIMEOUT        => FETCH_TIMEOUT,
-
-            CURLOPT_USERAGENT      => 'JioSTB-LocalProxy/1.0',
-
-            CURLOPT_SSL_VERIFYPEER => true,
-
-            CURLOPT_SSL_VERIFYHOST => 2,
-
-            CURLOPT_ENCODING       => '',
-
-        ]);
-
-        $body = curl_exec($ch);
-
-        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        $err  = curl_error($ch);
-
-        curl_close($ch);
-
-        if ($body !== false && $code >= 200 && $code < 300) {
-
-            return $body;
-
-        }
-
-        error_log(sprintf('[jiostb] cURL HTTP %d — %s', $code, $err));
-
-    }
-
-
-
-    $ctx = stream_context_create([
-
-        'http' => [
-
-            'method'        => 'GET',
-
-            'timeout'       => FETCH_TIMEOUT,
-
-            'user_agent'    => 'JioSTB-LocalProxy/1.0',
-
-            'ignore_errors' => true,
-
-        ],
-
-    ]);
-
-    $body = @file_get_contents(API_URL, false, $ctx);
-
-    if (is_string($body) && strlen($body) > 0) {
-
-        return $body;
-
-    }
-
-    return false;
-
+  "exists": true,
+  "size": 1031793,
+  "age_sec": 595,
+  "ttl_sec": 10800,
+  "next_fetch": 10205
 }
+```
 
-This project was built with [Lovable](https://lovable.dev).
+| Field | Meaning |
+| --- | --- |
+| `exists` | Whether this server instance holds a cached copy. `false` means nothing has been fetched yet. |
+| `size` | Playlist size in bytes. `0` when nothing is cached. |
+| `age_sec` | Seconds since the cached copy was fetched. `null` when nothing is cached. |
+| `ttl_sec` | Cache lifetime, always `10800` (3 hours). |
+| `next_fetch` | Seconds until the cache goes stale and the next request triggers a refresh. `0` when nothing is cached. |
 
-**Live app**: https://akindi.lovable.app
+This endpoint never triggers a fetch — it only reports what is already in memory.
 
-## Build with Lovable
+## Stream relay
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/f584cfad-8c76-49ea-9ed1-a32bb1828e08).
+```
+/api/public/stream?url=<encoded jio.com stream url>
+```
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+The browser player uses this when a channel cannot be opened directly. It forwards the
+request server-side and copies back `Content-Type`, `Content-Length`, `Content-Range` and
+`Accept-Ranges`, so seeking still works.
+
+Guards:
+- Only `https://` URLs on `jio.com` or a `jio.com` subdomain are fetched. Anything else gets
+  **403**, and a malformed URL gets **400**.
+- A `__hdnea__` token found in the query string is forwarded as a `Cookie` header.
+- `Range` requests are passed through; the response is marked `no-store`.
+
+## Limitations
+
+- **The cache is per server instance and in memory.** A restart, a redeploy, or a different
+  edge instance all start with an empty cache — `exists: false` — and the next request pays
+  the upstream fetch.
+- **Streams are geo-restricted.** Jio's CDN serves the video only from Indian connections
+  (a request from elsewhere comes back `451`). Playlist loading works from anywhere; video
+  playback generally needs an Indian internet connection.
+- **Tokens expire.** Each `__hdnea__` token carries its own start and expiry time, so an old
+  playlist copy eventually stops playing. A refresh gets you new tokens.
+- The channel count shown on the front page is fixed text, not a live count.
+
+## Project layout
+
+```
+src/lib/playlist-cache.server.ts       upstream fetch + 3-hour in-memory cache
+src/lib/playlist-handler.server.ts     shared request handler, normalising and header rewriting
+src/routes/api/public/jiostb.ts        playlist endpoint
+src/routes/api/public/jiostb[.]m3u.ts  playlist endpoint with .m3u extension
+src/routes/api/public/stream.ts        video relay
+src/routes/player.tsx                  shaka-player based web player
+src/routes/index.tsx                   front page: link, QR code, setup guides
+```
+
+The upstream source is configured in `src/lib/playlist-cache.server.ts` (`API_URL`).
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+```bash
+bun install
+bun run dev      # local dev server
+bun run build    # production build
+bun test         # vitest
+bun run lint     # eslint
 ```
+
+TanStack Start with file-based routing under `src/routes`; Tailwind CSS v4 through
+`src/styles.css`.
