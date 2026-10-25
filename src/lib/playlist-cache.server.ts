@@ -25,9 +25,28 @@ async function fetchUpstream(): Promise<string | null> {
   }
 }
 
+// Earliest __hdnea__ token expiry (ms) in the playlist, if any.
+export function tokenExpiry(body: string): number | null {
+  let min: number | null = null;
+  for (const m of body.matchAll(/exp=(\d{9,11})/g)) {
+    const t = Number(m[1]) * 1000;
+    if (min === null || t < min) min = t;
+  }
+  return min;
+}
+
+const EXPIRY_MARGIN_MS = 10 * 60 * 1000;
+
+export function isStale(e: Entry | null, now = Date.now()): boolean {
+  if (!e) return true;
+  if (now - e.fetchedAt >= CACHE_TTL_MS) return true;
+  const exp = tokenExpiry(e.body);
+  // Refetch when tokens are about to expire, but at most once every 2 minutes.
+  return exp !== null && now >= exp - EXPIRY_MARGIN_MS && now - e.fetchedAt > 120_000;
+}
+
 export async function getPlaylist(force = false): Promise<Entry | null> {
-  const stale = !cache || Date.now() - cache.fetchedAt >= CACHE_TTL_MS;
-  if (force || stale) {
+  if (force || isStale(cache)) {
     if (!inflight) {
       inflight = (async () => {
         const body = await fetchUpstream();
